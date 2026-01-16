@@ -383,6 +383,7 @@ Requirements:
     logNodeExecution(nodeName, "Starting parallel question generation");
     const startTime = Date.now();
     
+    //loop through subtopics and generate questions for each subtopic
     const results = await Promise.all(
         subtopics.map(subtopic => generateQuestionsForSubtopic(subtopic))
     );
