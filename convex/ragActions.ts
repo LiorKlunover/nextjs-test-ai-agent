@@ -26,19 +26,19 @@ import { buildRagChatPrompt } from "./prompts";
 /**
  * Generate embeddings for text using Google's embedding model
  * 
- * Uses the gemini-embedding-001 model to convert text into a 768-dimensional
+ * Uses the gemini-embedding-001 model to convert text into a 3072-dimensional
  * vector representation. This is used for both document chunks and user queries
  * to enable semantic similarity search.
  * 
  * @param text - The text to embed
- * @returns Promise resolving to a 768-dimensional embedding vector
+ * @returns Promise resolving to a 3072-dimensional embedding vector
  * 
  * @throws Error if the Google API key is invalid or the API request fails
  * 
  * @example
  * ```typescript
  * const embedding = await generateEmbedding("What are the gym hours?");
- * console.log(embedding.length); // 768
+ * console.log(embedding.length); // 3072
  * ```
  */
 async function generateEmbedding(text: string): Promise<number[]> {

@@ -25,7 +25,7 @@ export default defineSchema({
   })
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
-      dimensions: 768,
+      dimensions: 3072,
       filterFields: ["metadata.fileName"],
     })
     .index("by_fileName", ["metadata.fileName"])

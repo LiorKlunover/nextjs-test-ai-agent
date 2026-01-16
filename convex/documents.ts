@@ -20,7 +20,7 @@ import { mutation, query, internalQuery } from "./_generated/server";
  * the embedDocument action in ragActions.ts.
  * 
  * @param text - The text content of the document chunk
- * @param embedding - 768-dimensional embedding vector from Google's text-embedding model
+ * @param embedding - 3072-dimensional embedding vector from Google's gemini-embedding-001 model
  * @param metadata - Document metadata including:
  *   - source: Original source identifier
  *   - fileName: Name of the uploaded file
@@ -34,7 +34,7 @@ import { mutation, query, internalQuery } from "./_generated/server";
  * ```typescript
  * await ctx.runMutation(api.documents.addDocument, {
  *   text: "This is a chunk of text...",
- *   embedding: [0.123, 0.456, ...], // 768 dimensions
+ *   embedding: [0.123, 0.456, ...], // 3072 dimensions
  *   metadata: {
  *     source: "document.txt",
  *     fileName: "document.txt",
