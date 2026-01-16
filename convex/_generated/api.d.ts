@@ -9,9 +9,11 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as documents from "../documents.js";
 import type * as http from "../http.js";
 import type * as myFunctions from "../myFunctions.js";
 import type * as questionGenerator from "../questionGenerator.js";
+import type * as ragActions from "../ragActions.js";
 
 import type {
   ApiFromModules,
@@ -21,9 +23,11 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  documents: typeof documents;
   http: typeof http;
   myFunctions: typeof myFunctions;
   questionGenerator: typeof questionGenerator;
+  ragActions: typeof ragActions;
 }>;
 
 /**
