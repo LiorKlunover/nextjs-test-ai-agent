@@ -31,12 +31,38 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
  * console.log(embedding.length); // 3072
  * ```
  */
-export async function generateEmbedding(text: string): Promise<number[]> {
+export async function generateEmbedding(text: string, maxRetries: number = 5): Promise<number[]> {
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
   const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
   
-  const result = await model.embedContent(text);
-  return result.embedding.values;
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await model.embedContent(text);
+      return result.embedding.values;
+    } catch (error: any) {
+      lastError = error;
+      
+      // Check if it's a rate limit error (429)
+      const isRateLimitError = error?.message?.includes('429') || 
+                               error?.message?.includes('quota') ||
+                               error?.message?.includes('rate limit');
+      
+      if (isRateLimitError && attempt < maxRetries - 1) {
+        // Exponential backoff: 2^attempt seconds (1s, 2s, 4s, 8s, 16s)
+        const delayMs = Math.pow(2, attempt) * 1000;
+        console.log(`⏳ Rate limit hit. Retrying in ${delayMs / 1000}s... (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      } else if (!isRateLimitError) {
+        // If it's not a rate limit error, throw immediately
+        throw error;
+      }
+    }
+  }
+  
+  // If all retries failed, throw the last error
+  throw lastError || new Error('Failed to generate embedding after retries');
 }
 
 /**

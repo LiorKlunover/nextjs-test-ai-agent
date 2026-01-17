@@ -16,9 +16,11 @@ import {
     Sparkles,
     Bot,
     User,
-    Loader2
+    Loader2,
+    BookOpen
 } from "lucide-react";
 import { Avatar, Chip, CircularProgress, IconButton, Tooltip } from "@mui/material";
+import MultiChoiceQuestion from "@/components/MultiChoiceQuestion";
 
 interface Message {
     role: "user" | "assistant";
@@ -33,6 +35,19 @@ interface UploadedFile {
     content: string;
 }
 
+interface Question {
+    question: string;
+    options: {
+        A: string;
+        B: string;
+        C: string;
+        D: string;
+    };
+    correctAnswer: string;
+    explanation: string;
+    subtopic?: string;
+}
+
 export default function RAGPage() {
     const [files, setFiles] = useState<UploadedFile[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -42,9 +57,19 @@ export default function RAGPage() {
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    
+    // Quiz state
+    const [showQuiz, setShowQuiz] = useState(false);
+    const [quizQuery, setQuizQuery] = useState("");
+    const [questions, setQuestions] = useState<Question[]>([]);
+    const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+    const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
+    const [showResults, setShowResults] = useState(false);
+    const [quizError, setQuizError] = useState("");
 
     const embedDocument = useAction(api.ragActions.embedDocument);
     const ragChat = useAction(api.ragActions.ragChat);
+    const generateQuiz = useAction(api.fileQuestionGenerator.runDocumentRetrieval);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -54,6 +79,34 @@ export default function RAGPage() {
         scrollToBottom();
     }, [messages]);
 
+    const extractTextFromPDF = async (file: File): Promise<string> => {
+        try {
+            const pdfjsLib = await import('pdfjs-dist');
+            
+            // Use jsdelivr CDN which has better CORS support and reliability
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+            
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            
+            let fullText = '';
+            
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items
+                    .map((item: any) => item.str)
+                    .join(' ');
+                fullText += pageText + '\n\n';
+            }
+            
+            return fullText;
+        } catch (error) {
+            console.error("Error extracting PDF text:", error);
+            throw new Error("Failed to extract text from PDF");
+        }
+    };
+
     const handleFileUpload = async (uploadedFiles: FileList | null) => {
         if (!uploadedFiles) return;
 
@@ -62,9 +115,18 @@ export default function RAGPage() {
         for (let i = 0; i < uploadedFiles.length; i++) {
             const file = uploadedFiles[i];
             
-            if (file.type.startsWith("text/") || file.name.endsWith(".txt") || file.name.endsWith(".md")) {
+            const isTextFile = file.type.startsWith("text/") || file.name.endsWith(".txt") || file.name.endsWith(".md");
+            const isPDF = file.type === "application/pdf" || file.name.endsWith(".pdf");
+            
+            if (isTextFile || isPDF) {
                 try {
-                    const content = await file.text();
+                    let content: string;
+                    
+                    if (isPDF) {
+                        content = await extractTextFromPDF(file);
+                    } else {
+                        content = await file.text();
+                    }
                     
                     const newFile: UploadedFile = {
                         name: file.name,
@@ -97,6 +159,12 @@ export default function RAGPage() {
                     }
                 } catch (error) {
                     console.error("Error processing file:", error);
+                    const errorMessage: Message = {
+                        role: "assistant",
+                        content: `❌ Error processing "${file.name}": ${error instanceof Error ? error.message : "Unknown error"}`,
+                        timestamp: new Date()
+                    };
+                    setMessages(prev => [...prev, errorMessage]);
                 }
             }
         }
@@ -170,6 +238,55 @@ export default function RAGPage() {
         return (bytes / (1024 * 1024)).toFixed(1) + " MB";
     };
 
+    const handleGenerateQuiz = async () => {
+        if (!quizQuery.trim()) {
+            setQuizError("Please enter a query");
+            return;
+        }
+
+        setIsGeneratingQuiz(true);
+        setQuizError("");
+        setQuestions([]);
+        setSelectedAnswers({});
+        setShowResults(false);
+
+        try {
+            const result = await generateQuiz({ query: quizQuery.trim() });
+            if (result.success && result.questions) {
+                setQuestions(result.questions);
+                setShowQuiz(true);
+            } else {
+                setQuizError("Failed to generate questions. Please try again.");
+            }
+        } catch (err) {
+            setQuizError("An error occurred while generating the quiz. Please try again.");
+            console.error(err);
+        } finally {
+            setIsGeneratingQuiz(false);
+        }
+    };
+
+    const handleAnswerSelect = (questionIndex: number, answer: string) => {
+        setSelectedAnswers((prev) => ({
+            ...prev,
+            [questionIndex]: answer,
+        }));
+    };
+
+    const handleSubmitQuiz = () => {
+        setShowResults(true);
+    };
+
+    const calculateScore = () => {
+        let correct = 0;
+        questions.forEach((q, index) => {
+            if (selectedAnswers[index] === q.correctAnswer) {
+                correct++;
+            }
+        });
+        return correct;
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-blue-50 p-4 md:p-8">
             <div className="max-w-7xl mx-auto space-y-6">
@@ -195,6 +312,53 @@ export default function RAGPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* File Upload Section */}
                     <div className="lg:col-span-1 space-y-4">
+                        {/* Quiz Generator Card */}
+                        <Card className="shadow-lg">
+                            <CardHeader>
+                                <div className="flex items-center gap-2">
+                                    <BookOpen className="w-5 h-5 text-blue-600" />
+                                    <CardTitle>Generate Quiz</CardTitle>
+                                </div>
+                                <CardDescription>
+                                    Create questions from your documents
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <Input
+                                    type="text"
+                                    value={quizQuery}
+                                    onChange={(e) => setQuizQuery(e.target.value)}
+                                    onKeyPress={(e) => e.key === "Enter" && !isGeneratingQuiz && handleGenerateQuiz()}
+                                    placeholder="Enter a topic or query..."
+                                    disabled={isGeneratingQuiz || files.length === 0}
+                                    className="w-full"
+                                />
+                                <Button
+                                    onClick={handleGenerateQuiz}
+                                    disabled={isGeneratingQuiz || !quizQuery.trim() || files.length === 0}
+                                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                                >
+                                    {isGeneratingQuiz ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            Generating...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <BookOpen className="w-4 h-4 mr-2" />
+                                            Generate Quiz
+                                        </>
+                                    )}
+                                </Button>
+                                {quizError && (
+                                    <p className="text-sm text-red-600">{quizError}</p>
+                                )}
+                                {files.length === 0 && (
+                                    <p className="text-sm text-gray-500">Upload documents first to generate quizzes</p>
+                                )}
+                            </CardContent>
+                        </Card>
+                        
                         <Card className="shadow-lg">
                             <CardHeader>
                                 <div className="flex items-center justify-between">
@@ -246,6 +410,7 @@ export default function RAGPage() {
                                             <div className="flex gap-2">
                                                 <Chip label=".txt" size="small" variant="outlined" />
                                                 <Chip label=".md" size="small" variant="outlined" />
+                                                <Chip label=".pdf" size="small" variant="outlined" />
                                             </div>
                                         )}
                                     </div>
@@ -255,7 +420,7 @@ export default function RAGPage() {
                                     ref={fileInputRef}
                                     type="file"
                                     multiple
-                                    accept=".txt,.md,text/*"
+                                    accept=".txt,.md,.pdf,text/*,application/pdf"
                                     onChange={(e) => handleFileUpload(e.target.files)}
                                     className="hidden"
                                 />
@@ -295,18 +460,19 @@ export default function RAGPage() {
                         </Card>
                     </div>
 
-                    {/* Chat Section */}
+                    {/* Chat/Quiz Section */}
                     <div className="lg:col-span-2">
-                        <Card className="shadow-lg flex flex-col h-[calc(100vh-16rem)] md:h-[700px]">
-                            <CardHeader className="border-b">
-                                <div className="flex items-center gap-2">
-                                    <MessageSquare className="w-5 h-5 text-blue-600" />
-                                    <CardTitle>Chat</CardTitle>
-                                </div>
-                                <CardDescription>
-                                    Ask questions about your documents
-                                </CardDescription>
-                            </CardHeader>
+                        {!showQuiz ? (
+                            <Card className="shadow-lg flex flex-col h-[calc(100vh-16rem)] md:h-[700px]">
+                                <CardHeader className="border-b">
+                                    <div className="flex items-center gap-2">
+                                        <MessageSquare className="w-5 h-5 text-blue-600" />
+                                        <CardTitle>Chat</CardTitle>
+                                    </div>
+                                    <CardDescription>
+                                        Ask questions about your documents
+                                    </CardDescription>
+                                </CardHeader>
                             
                             {/* Messages */}
                             <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -431,6 +597,90 @@ export default function RAGPage() {
                                 </div>
                             </div>
                         </Card>
+                        ) : (
+                            <Card className="shadow-lg">
+                                <CardHeader className="border-b">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <BookOpen className="w-5 h-5 text-blue-600" />
+                                            <CardTitle>Quiz</CardTitle>
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                setShowQuiz(false);
+                                                setQuestions([]);
+                                                setSelectedAnswers({});
+                                                setShowResults(false);
+                                                setQuizQuery("");
+                                            }}
+                                        >
+                                            Back to Chat
+                                        </Button>
+                                    </div>
+                                    <CardDescription>
+                                        {questions.length} questions generated • {showResults ? `Score: ${calculateScore()}/${questions.length}` : "Select your answers"}
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="p-6 space-y-6 max-h-[calc(100vh-16rem)] md:max-h-[700px] overflow-y-auto">
+                                    {questions.map((q, index) => (
+                                        <MultiChoiceQuestion
+                                            key={index}
+                                            question={q}
+                                            index={index}
+                                            selectedAnswer={selectedAnswers[index]}
+                                            showResults={showResults}
+                                            onAnswerSelect={handleAnswerSelect}
+                                        />
+                                    ))}
+
+                                    {!showResults && questions.length > 0 && (
+                                        <div className="bg-white rounded-lg border p-6 text-center sticky bottom-0">
+                                            <Button
+                                                onClick={handleSubmitQuiz}
+                                                disabled={Object.keys(selectedAnswers).length !== questions.length}
+                                                className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
+                                            >
+                                                Submit Quiz
+                                            </Button>
+                                            <p className="text-sm text-gray-600 mt-2">
+                                                {Object.keys(selectedAnswers).length}/{questions.length} questions answered
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {showResults && (
+                                        <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg p-8 text-center text-white sticky bottom-0">
+                                            <h2 className="text-3xl font-bold mb-2">Quiz Complete!</h2>
+                                            <p className="text-5xl font-bold my-4">
+                                                {calculateScore()}/{questions.length}
+                                            </p>
+                                            <p className="text-xl mb-6">
+                                                {calculateScore() === questions.length
+                                                    ? "Perfect score! 🎉"
+                                                    : calculateScore() >= questions.length * 0.7
+                                                        ? "Great job! 👏"
+                                                        : calculateScore() >= questions.length * 0.5
+                                                            ? "Good effort! 👍"
+                                                            : "Keep practicing! 💪"}
+                                            </p>
+                                            <Button
+                                                onClick={() => {
+                                                    setQuestions([]);
+                                                    setSelectedAnswers({});
+                                                    setShowResults(false);
+                                                    setShowQuiz(false);
+                                                    setQuizQuery("");
+                                                }}
+                                                className="bg-white text-purple-600 hover:bg-gray-100"
+                                            >
+                                                Generate New Quiz
+                                            </Button>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
                     </div>
                 </div>
             </div>
