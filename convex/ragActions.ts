@@ -22,32 +22,7 @@ import { action } from "./_generated/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { api, internal } from "./_generated/api";
 import { buildRagChatPrompt } from "./prompts";
-
-/**
- * Generate embeddings for text using Google's embedding model
- * 
- * Uses the gemini-embedding-001 model to convert text into a 3072-dimensional
- * vector representation. This is used for both document chunks and user queries
- * to enable semantic similarity search.
- * 
- * @param text - The text to embed
- * @returns Promise resolving to a 3072-dimensional embedding vector
- * 
- * @throws Error if the Google API key is invalid or the API request fails
- * 
- * @example
- * ```typescript
- * const embedding = await generateEmbedding("What are the gym hours?");
- * console.log(embedding.length); // 3072
- * ```
- */
-async function generateEmbedding(text: string): Promise<number[]> {
-  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
-  const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
-  
-  const result = await model.embedContent(text);
-  return result.embedding.values;
-}
+import { generateEmbedding } from "./documents";
 
 /**
  * Split text into overlapping chunks for embedding
@@ -253,17 +228,11 @@ export const ragChat = action({
     try {
       console.log(`🔍 Processing query: "${args.query}"`);
       
-      // 1. Generate embedding for the query
-      const queryEmbedding: number[] = await generateEmbedding(args.query);
-      console.log("✅ Query embedded");
-      
-      // 2. Use Convex vector search to find similar documents
-      const searchResults = await ctx.vectorSearch("documents", "by_embedding", {
-        vector: queryEmbedding,
+      // 1. Use Convex vector search to find similar documents
+      const searchResults = await ctx.runAction(api.documents.vectorSearch, {
+        query: args.query,
         limit: 5,
-        ...(args.fileName && {
-          filter: (q) => q.eq("metadata.fileName", args.fileName!),
-        }),
+        fileName: args.fileName,
       });
       
       if (searchResults.length === 0) {

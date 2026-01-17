@@ -10,7 +10,34 @@
  */
 
 import { v } from "convex/values";
-import { mutation, query, internalQuery } from "./_generated/server";
+import { mutation, query, internalQuery, action } from "./_generated/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+/**
+ * Generate embeddings for text using Google's embedding model
+ * 
+ * Uses the gemini-embedding-001 model to convert text into a 3072-dimensional
+ * vector representation. This is used for both document chunks and user queries
+ * to enable semantic similarity search.
+ * 
+ * @param text - The text to embed
+ * @returns Promise resolving to a 3072-dimensional embedding vector
+ * 
+ * @throws Error if the Google API key is invalid or the API request fails
+ * 
+ * @example
+ * ```typescript
+ * const embedding = await generateEmbedding("What are the gym hours?");
+ * console.log(embedding.length); // 3072
+ * ```
+ */
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+  const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
+  
+  const result = await model.embedContent(text);
+  return result.embedding.values;
+}
 
 /**
  * Add a document chunk to the database
@@ -205,6 +232,49 @@ export const getAllFiles = query({
         uploadedAt: fileDocs[0]?.metadata.uploadedAt,
       };
     });
+  },
+});
+
+/**
+ * Perform vector similarity search on documents
+ * 
+ * Searches for documents similar to the provided text query using
+ * Convex's built-in vector search capabilities. Automatically generates
+ * an embedding for the query text and optionally filters results by fileName.
+ * 
+ * @param query - The text query to search for
+ * @param limit - Maximum number of results to return (default: 5)
+ * @param fileName - Optional file name to filter results
+ * 
+ * @returns Array of search results with document IDs and similarity scores
+ * 
+ * @example
+ * ```typescript
+ * const results = await ctx.runAction(api.documents.vectorSearch, {
+ *   query: "What are the gym hours?",
+ *   limit: 5,
+ *   fileName: "document.txt"
+ * });
+ * ```
+ */
+export const vectorSearch = action({
+  args: {
+    query: v.string(),
+    limit: v.optional(v.number()),
+    fileName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const queryEmbedding = await generateEmbedding(args.query);
+    
+    const searchResults = await ctx.vectorSearch("documents", "by_embedding", {
+      vector: queryEmbedding,
+      limit: args.limit ?? 5,
+      ...(args.fileName && {
+        filter: (q) => q.eq("metadata.fileName", args.fileName!),
+      }),
+    });
+    
+    return searchResults;
   },
 });
 
