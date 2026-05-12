@@ -1,0 +1,38 @@
+{
+  "mcpServers": {
+    "convex": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "convex@latest",
+        "mcp",
+        "start"
+      ]
+    },
+    "langgraph": {
+      "url": "https://gitmcp.io/langchain-ai/langgraph",
+      "type": "sse"
+    },
+    "shadcn": {
+      "command": "npx.cmd",
+      "args": [
+        "-y",
+        "shadcn@latest",
+        "mcp"
+      ]
+    },
+    "mui": {
+      "command": "npx.cmd",
+      "args": [
+        "-y",
+        "@mui/mcp@latest"
+      ]
+    },
+    "langchain-docs": {
+      "command": "",
+      "args": [
+        "https://docs.langchain.com/mcp"
+      ]
+    }
+  }
+}
